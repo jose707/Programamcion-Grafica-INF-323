@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+        canvas{
+            display: block;
+            border: 1px solid #ccc;
+            
+        }
+
+    </style>
+</head>
+<body>
+    <canvas id="glCanvas" width="800" height="800"></canvas>
+    <script id="vs" type="vertex">
+        #version 300 es
+        layout(location = 0) in vec2 aVertices;
+        layout(location = 1) in vec4 aColores;
+        out vec4 vColores;
+        void main() {
+            vColores = aColores;  
+            gl_Position = vec4(aVertices, 0.0, 1.0);
+        }
+    </script>
+
+    <script id="fs" type="fragment">
+        #version 300 es
+        precision highp float;
+        in vec4 vColores;
+        out vec4 color;
+        void main() {
+            color = vColores;
+        }
+    </script>
+
+    <script>
+        "use strict";
+
+        var programaID, gl, pared, pared2, techo, linea, pasto, cielo, circulo, pastos, sol, marco, puerta, seguro;
+        var cloudsOffsetX = 0;  // Offset horizontal para las nubes
+        var lastTime = 0;       // Para control de tiempo
+        var nubes = [];  
+        function compilaEnlazaLosShaders() {
+
+          var shaderDeVertice = gl.createShader(gl.VERTEX_SHADER);
+          gl.shaderSource(shaderDeVertice, document.getElementById("vs").text.trim());
+          gl.compileShader(shaderDeVertice);
+          if (!gl.getShaderParameter(shaderDeVertice, gl.COMPILE_STATUS)) {
+             console.error(gl.getShaderInfoLog(shaderDeVertice));
+          }
+
+          var shaderDeFragmento = gl.createShader(gl.FRAGMENT_SHADER);
+          gl.shaderSource(shaderDeFragmento, document.getElementById("fs").text.trim());
+          gl.compileShader(shaderDeFragmento);
+          if (!gl.getShaderParameter(shaderDeFragmento, gl.COMPILE_STATUS)) {
+             console.error(gl.getShaderInfoLog(shaderDeFragmento));
+          }
+
+          programaID = gl.createProgram();
+          gl.attachShader(programaID, shaderDeVertice); 
+          gl.attachShader(programaID, shaderDeFragmento);
+          gl.linkProgram(programaID);
+          if (!gl.getProgramParameter(programaID, gl.LINK_STATUS)) {
+             console.error(gl.getProgramInfoLog(programaID));
+          }
+
+          gl.useProgram(programaID);
+        }
+        class Cielo {
+          constructor(gl) {
+            var vertices = [
+                -1,  0, // 0
+                 1,  0,
+                 1,  1, // 4
+                -1,  1, // 5
+               
+            ];
+            var colores = [ 
+                52/255, 152/255, 219/255, 1, 
+                52/255, 152/255, 219/255, 1,
+                33/255, 97/255, 140/255, 1,
+                33/255, 97/255, 140/255, 1,
+                
+            ];
+
+            this.lineaVAO = gl.createVertexArray();
+            gl.bindVertexArray(this.lineaVAO);
+            var codigoVertices = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+            var codigoColores = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, codigoColores);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colores), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(1);
+            gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+            gl.bindVertexArray(null);
+            gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+          }
+
+          dibuja(gl) {
+            gl.bindVertexArray(this.lineaVAO);
+            gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+            gl.bindVertexArray(null);
+          }
+        }
+        class Pasto {
+          constructor(gl) {
+            var vertices = [
+                -1,  0, // 0
+                 1,  0,
+                 1, -1, // 4
+                -1, -1, // 5
+               
+            ];
+            var colores = [ 
+                30/255, 132/255, 79/255, 1, 
+                30/255, 132/255, 79/255, 1,
+                20/255, 90/255, 50/255, 1,
+                20/255, 90/255, 50/255, 1,
+                
+            ];
+
+            this.lineaVAO = gl.createVertexArray();
+            gl.bindVertexArray(this.lineaVAO);
+            var codigoVertices = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+            var codigoColores = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, codigoColores);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colores), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(1);
+            gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+            gl.bindVertexArray(null);
+            gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+          }
+
+          dibuja(gl) {
+            gl.bindVertexArray(this.lineaVAO);
+            gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+            gl.bindVertexArray(null);
+          }
+        }
+
+        class Pared {
+          constructor(gl) {
+            var vertices = [
+                -.3,  .1, // 0
+                -.1, .28,
+                 .1,  .1, // 4
+                 .1,  -.2, // 5
+                 -.3, -.2, // 6
+            ];
+            var colores = [ 
+                146/255, 43/255, 33/255, 1, 
+                146/255, 43/255, 33/255, 1,
+                146/255, 43/255, 33/255, 1,
+                146/255, 43/255, 33/255, 1,
+                146/255, 43/255, 33/255, 1, 
+                
+            ];
+
+            this.lineaVAO = gl.createVertexArray();
+            gl.bindVertexArray(this.lineaVAO);
+            var codigoVertices = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+            var codigoColores = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, codigoColores);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colores), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(1);
+            gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+            gl.bindVertexArray(null);
+            gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+          }
+
+          dibuja(gl) {
+            gl.bindVertexArray(this.lineaVAO);
+            gl.drawArrays(gl.TRIANGLE_FAN, 0, 5);
+            gl.bindVertexArray(null);
+          }
+        }
+
+        class Pared2 {
+            constructor(gl) {
+                var vertices = [
+                     0.1, 0.1, 
+                     0.1, -0.2, 
+                     0.4, -0.1, 
+                     0.4,  0.2, 
+                ];
+                var colores = [
+                    123/255, 36/255, 28/255, 1, 
+                    123/255, 36/255, 28/255, 1, 
+                    123/255, 36/255, 28/255, 1, 
+                    123/255, 36/255, 28/255, 1,  
+                ];
+
+                this.lineaVAO = gl.createVertexArray();
+                gl.bindVertexArray(this.lineaVAO);
+                var codigoVertices = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(0);
+                gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+                var codigoColores = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, codigoColores);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colores), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(1);
+                gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+                gl.bindVertexArray(null);
+                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+            }
+
+            dibuja(gl) {
+                gl.bindVertexArray(this.lineaVAO);
+                gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+                gl.bindVertexArray(null);
+            }
+        }
+        function dibuja() {
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.lineWidth(10);
+            pared.dibuja(gl);
+            pared2.dibuja(gl);
+        }
+
+        class Techo {
+            constructor(gl) {
+                var vertices = [
+                    -0.1, 0.28, 
+                     0.24, 0.35, 
+                     0.45, 0.15, 
+                     0.15,  0.05, 
+                ];
+                var colores = [
+                    33/255, 47/255, 60/255, 1, 
+                    33/255, 47/255, 60/255, 1, 
+                    33/255, 47/255, 60/255, 1, 
+                    33/255, 47/255, 60/255, 1, 
+                ];
+
+                this.lineaVAO = gl.createVertexArray();
+                gl.bindVertexArray(this.lineaVAO);
+                var codigoVertices = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(0);
+                gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+                var codigoColores = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, codigoColores);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colores), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(1);
+                gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+                gl.bindVertexArray(null);
+                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+            }
+
+            dibuja(gl) {
+                gl.bindVertexArray(this.lineaVAO);
+                gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+                gl.bindVertexArray(null);
+            }
+        }
+        class Linea {
+            constructor(gl) {
+                var vertices = [
+                    -0.1, 0.28, 
+                    -0.35, 0.055, 
+                ];
+                var colores = [
+                    33/255, 47/255, 60/255, 1, 
+                    33/255, 47/255, 60/255, 1, 
+                    
+                ];
+
+                this.lineaVAO = gl.createVertexArray();
+                gl.bindVertexArray(this.lineaVAO);
+                var codigoVertices = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(0);
+                gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+                var codigoColores = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, codigoColores);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colores), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(1);
+                gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+                gl.bindVertexArray(null);
+                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+            }
+
+            dibuja(gl) {
+                gl.bindVertexArray(this.lineaVAO);
+                gl.drawArrays(gl.LINES, 0, 2);
+                gl.bindVertexArray(null);
+            }
+        }
+
+        class Circulo {
+            constructor(gl, radio, cx, cy, color, llenado) {
+                this.llenado = llenado;
+                this.color = color;
+                var vertices = [];
+                var colores = [];
+                
+                if (llenado) {
+                    vertices.push(cx); // Centro en X
+                    vertices.push(cy); // Centro en Y
+                    colores.push(...this.color); // Color del centro
+                    }
+                for (var i = 0; i <= 360; i++) { 
+                    var x = cx + radio * Math.cos(i * Math.PI / 180);
+                    var y = cy + radio * Math.sin(i * Math.PI / 180);
+                    vertices.push(x);
+                    vertices.push(y);
+                    colores.push(...this.color); // Rojo
+                    }
+                
+                this.circuloVAO = gl.createVertexArray();
+                gl.bindVertexArray(this.circuloVAO);
+
+                var codigoVertices = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(0);
+                gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+                var codigoColores = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, codigoColores);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colores), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(1);
+                gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+                gl.bindVertexArray(null);
+                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+            }
+            
+            dibuja(gl) {
+                gl.bindVertexArray(this.circuloVAO);
+                gl.drawArrays((this.llenado) ? gl.TRIANGLE_FAN : gl.LINE_LOOP, 0, this.llenado ? 362 : 361);
+                gl.bindVertexArray(null);
+            }
+        }
+        class Cuadrado {
+    constructor(gl, vertices, color) {
+        // Ejemplo: [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5]
+        const colores = [
+            ...color, // Color del vértice 1
+            ...color, // Color del vértice 2
+            ...color, // Color del vértice 3
+            ...color  // Color del vértice 4
+        ];
+
+        this.lineaVAO = gl.createVertexArray();
+        gl.bindVertexArray(this.lineaVAO);
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        const colorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colores), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(1);
+        gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+        gl.bindVertexArray(null);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    }
+
+    dibuja(gl) {
+        gl.bindVertexArray(this.lineaVAO);
+        gl.drawArrays(gl.TRIANGLE_FAN, 0, 4); 
+        gl.bindVertexArray(null);
+    }
+}
+
+        class Pastos {
+    constructor(gl, offsetX, offsetY) {
+        const grassData = this.generateGrassBlades(30, offsetX, offsetY);
+        this.lineaVAO = gl.createVertexArray();
+        gl.bindVertexArray(this.lineaVAO);
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(grassData.positions), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        const colorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(grassData.colors), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(1);
+        gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+        const indexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(grassData.indices), gl.STATIC_DRAW);
+
+        gl.bindVertexArray(null);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    }
+
+    generateGrassBlades(numBlades) {
+        const offsetX = Math.random() * 2 - 1; // Genera un valor aleatorio entre -1 y 1
+        const offsetY = Math.random() * -1;
+        
+        const positions = [];
+        const colors = [];
+        const indices = [];
+
+        const lightGreen = [0.5, 0.9, 0.3, 1.0];
+        const mediumGreen = [0.3, 0.8, 0.2, 1.0];
+        const darkGreen = [0.0, 0.5, 0.2, 1.0];
+        const greens = [lightGreen, mediumGreen, darkGreen];
+
+        let indexOffset = 0;
+        const scale = 0.1;
+
+        for (let i = 0; i < numBlades; i++) {
+            const baseX = (Math.random() * 1.6 - 0.8) * scale + offsetX;
+            const baseY = -0.9 * scale + offsetY; // Asegura que baseY sea menor a 0
+            const height = (0.7 + Math.random() * 0.9) * scale;
+            const baseWidth = (0.02 + Math.random() * 0.05) * scale;
+            const curve = ((Math.random() - 0.5) * 0.4) * scale;
+            const colorIndex = Math.floor(Math.random() * greens.length);
+            const color = greens[colorIndex];
+
+            positions.push(baseX - baseWidth, baseY);
+            colors.push(...color);
+
+            positions.push(baseX + baseWidth, baseY);
+            colors.push(...color);
+
+            positions.push(baseX + curve, baseY + height);
+            colors.push(...color);
+
+            indices.push(indexOffset, indexOffset + 1, indexOffset + 2);
+            indexOffset += 3;
+        }
+
+        return {
+            positions,
+            colors,
+            indices
+        };
+    }
+
+    dibuja(gl) {
+        gl.bindVertexArray(this.lineaVAO);
+        gl.drawElements(gl.TRIANGLES, 30 * 3, gl.UNSIGNED_SHORT, 0);
+        gl.bindVertexArray(null);
+    }
+}
+
+function crearNube(gl, index) {
+    const colorNube = [0.69, 0.88, 0.9, 1.0];
+    const coef_radio = 0.3;
+    
+    if (!nubes[index]) {
+        nubes[index] = {
+            x: Math.random() * 2 - 1,  // Posición X inicial aleatoria
+            y: Math.random() * 0.5 + 0.3,  // Posición Y en la parte superior
+            velocidad: 0.00002 + Math.random() * 0.000005  // Velocidad aleatoria
+        };
+    }
+    
+    // Aplica el offset actual + posición base de la nube
+    const px = nubes[index].x + cloudsOffsetX * nubes[index].velocidad;
+    const py = nubes[index].y;
+    
+    // Si la nube sale completamente de la pantalla, reubicarla al otro lado
+    if (px > 1.2) {
+        nubes[index].x = -1.2;
+    }
+    
+    const circuloCentro = new Circulo(gl, 0.3 * coef_radio, px, py, colorNube, true);
+    const circuloIzquierdaArriba = new Circulo(gl, 0.2 * coef_radio, -0.05 + px, 0.05 + py, colorNube, true);
+    const circuloIzquierdaAbajo = new Circulo(gl, 0.2 * coef_radio, -0.07 + px, -0.05 + py, colorNube, true);
+    const circuloDerechaArriba = new Circulo(gl, 0.22 * coef_radio, 0.05 + px, 0.05 + py, colorNube, true);
+    const circuloDerechaAbajo = new Circulo(gl, 0.2 * coef_radio, 0.1 + px, -0.05 + py, colorNube, true);
+    
+    circuloCentro.dibuja(gl);
+    circuloIzquierdaArriba.dibuja(gl);
+    circuloIzquierdaAbajo.dibuja(gl);
+    circuloDerechaArriba.dibuja(gl);
+    circuloDerechaAbajo.dibuja(gl);
+}
+
+
+        function dibuja() {
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.lineWidth(10);
+            cielo.dibuja(gl);
+            for (let i = 0; i < 10; i++){
+                crearNube(gl, i);
+            }
+            sol.dibuja(gl);
+            pasto.dibuja(gl);
+            for (let pastos of pastosArray) {
+                pastos.dibuja(gl);
+            }
+            pared.dibuja(gl);
+            pared2.dibuja(gl);
+            techo.dibuja(gl);
+            linea.dibuja(gl);
+            circulo.dibuja(gl);
+            marco.dibuja(gl);
+            puerta.dibuja(gl);
+            seguro.dibuja(gl);
+        }
+        function animate(currentTime) {
+            if (!lastTime) lastTime = currentTime;
+            const deltaTime = currentTime - lastTime;
+            cloudsOffsetX += deltaTime;
+            dibuja();
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+    </script>
+
+
+    <script>
+        function main(){
+            const canvas = document.getElementById('glCanvas');
+            gl = canvas.getContext("webgl2", { antialias: true });
+            if(!gl){
+                alert('Tu navegador no soporta WebGL');
+            }
+            gl.viewport(0, 0, canvas.width, canvas.height)
+            compilaEnlazaLosShaders();
+            pastosArray = [];
+            pared = new Pared(gl);
+            pared2 = new Pared2(gl);
+            techo = new Techo(gl);
+            linea = new Linea(gl);
+            pasto = new Pasto(gl);
+            cielo = new Cielo(gl); 
+            sol = new Circulo(gl, 0.1, 0.7, 0.7, [1.0, 1.0, 0.0, 1.0], true); 
+            circulo = new Circulo(gl, 0.055, -0.1, 0.1, [243/255, 156/255, 18/255, 1.0], true);
+            marco = new Cuadrado(gl,[-0.16, -0.2, -0.04, -0.2, -0.04, 0, -0.16, 0], [100/255, 66/255, 18/255, 1.0])
+            puerta = new Cuadrado(gl,[-0.15, -0.2, -0.05, -0.2, -0.05, -0.01, -0.15, -0.01], [120/255, 66/255, 18/255, 1.0])
+            seguro = new Circulo(gl, 0.01, -0.068, -0.1, [23/255, 33/255, 42/255, 1.0], true);
+            nubes = [];
+            for (let i = 0; i < 25; i++) {
+                pastosArray.push(new Pastos(gl));
+            }
+            gl.clearColor(.0, 0.0, 0.0, 1.0);
+
+            //dibuja();
+            requestAnimationFrame(animate);
+        }
+        window.onload = main;
+    </script>
+    
+</body>
+</html>
