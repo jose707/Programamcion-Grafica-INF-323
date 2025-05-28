@@ -1,0 +1,17 @@
+# MTL file para colores naturales
+
+newmtl Bark
+Ka 0.19 0.11 0.05   # Marrón oscuro
+Kd 0.55 0.27 0.07   # Marrón corteza
+Ks 0.02 0.02 0.02   # Brillo muy bajo
+d 1.0
+Ns 0.0
+illum 1
+
+newmtl Tree
+Ka 0.05 0.15 0.05   # Verde oscuro
+Kd 0.30 0.55 0.12   # Verde follaje
+Ks 0.0 0.0 0.0
+d 1.0
+Ns 0.0
+illum 1
