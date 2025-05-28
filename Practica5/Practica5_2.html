@@ -1,0 +1,1523 @@
+﻿<!DOCTYPE HTML>
+<html>
+
+<head>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0px;
+      border: 0;
+      overflow: hidden;
+      /* Deshabilita las barras de desplazamiento */
+      display: block;
+      /* Sin contenido flotantes a los lados */
+    }
+
+    #gui {
+      position: absolute;
+      /* Posición absoluta con relación a la ventana gráfica */
+      top: 0;
+      left: 0;
+    }
+  </style>
+  <title>Cubo Color Interacción (Cuaternión) en WebGL 2.0</title>
+  <meta http-equiv="content-type" content="text/html;charset=utf-8">
+</head>
+
+<body>
+  <div id="content">
+
+
+
+
+
+    <div id="canvas-holder">
+      <div id="tools">
+        <p><button id="reset">Reinicia</button></p>
+      </div>
+      <canvas id="webglcanvas" style="border: none;" width="500" height="500"></canvas>
+    </div>
+
+  </div>
+
+  <!--
+        /***************************************************************************/
+        /* Se definen los códigos shaders.                                         */
+        /***************************************************************************/
+      -->
+
+
+  <script id="vs" type="vertex">
+        #version 300 es
+        uniform mat4 uMatrizProyeccion;
+        uniform mat4 uMatrizVista;
+        uniform mat4 uMatrizModelo;
+        layout(location = 0) in vec3 aVertices;
+        layout(location = 1) in vec4 aColores;
+        out vec4 vColor;
+        void main() {
+          vColor = aColores;  
+          gl_Position = uMatrizProyeccion * uMatrizVista * uMatrizModelo * vec4(aVertices, 1.0);
+        }
+      </script>
+
+  <script id="fs" type="fragment">
+        #version 300 es
+        precision highp float;
+        in vec4 vColor;
+        uniform vec4 uColor;
+        uniform bool uUsarColorUniforme;
+        out vec4 color;
+        void main() {
+          color = uUsarColorUniforme ? uColor : vColor;
+        }
+      </script>
+
+  <script>
+    "use strict";
+    var coloresLetras = [
+      [1.0, 0.0, 0.0, 1.0],
+      [0.0, 1.0, 0.0, 1.0],
+      [0.0, 0.0, 1.0, 1.0],
+      [1.0, 1.0, 0.0, 1.0]
+    ];
+
+    var arbol;
+    var letras = [];
+    var zoom = 1.0;
+
+    /* Variables globales */
+    var canvas;
+    var programaID;
+    var gl;
+    var cubo;
+    var caseta;
+    var tronco;
+    var montana;
+    var arcBall;
+
+    var uColor;
+    var uUsarColorUniforme;
+
+    var MatrizVista = new Array(16);
+    var posicion = [0, 1, 6]; // posición inicial de la cámara
+    var direccionInicial = [0, 0, -1, 1];
+    var rotY = 0;
+    var antX = -1;
+    var uMatrizVista;
+
+    /* Variables Uniformes */
+    var uMatrizProyeccion;
+    var uMatrizVista;
+    var uMatrizModelo;
+
+    /* Matrices */
+    var MatrizProyeccion = new Array(16);
+    var MatrizVista = new Array(16);
+    var MatrizModelo = new Array(16);
+
+    /* Para la interacción */
+    var MatrizRotacion = new Array(16);
+    var Matriz = new Array(16);
+    var boton_izq_presionado = false;
+
+    var inicio = Date.now();
+    var tiempo_real = 0;
+    var PERIODO_MOVIMIENTO = 0.01;
+    var tiempoMovimiento = PERIODO_MOVIMIENTO;
+
+
+    const NUM_TRONCOS = 12; // Cambia este número para más o menos troncos
+    const posicionesTroncos = [];
+    for (let i = 0; i < NUM_TRONCOS; i++) {
+      // El cubo va de -5 a 5 en X y Z (ajusta según tu escalado)
+      // Aquí se asume que la plataforma está centrada en (0,0,0) y mide 10x10
+      let x = (Math.random() * 10 - 5) * 0.9; // margen para que no queden en el borde
+      let z = (Math.random() * 10 - 5) * 0.9;
+      let y = 0.7; // Altura sobre la plataforma (ajusta según tu modelo)
+      posicionesTroncos.push([x, y, z]);
+    }
+
+    /***************************************************************************/
+    /* Se crean, compilan y enlazan los programas Shader                       */
+    /***************************************************************************/
+    function compilaEnlazaLosShaders() {
+
+      /* Se compila el shader de vertice */
+      var shaderDeVertice = gl.createShader(gl.VERTEX_SHADER);
+      gl.shaderSource(shaderDeVertice, document.getElementById("vs").text.trim());
+      gl.compileShader(shaderDeVertice);
+      if (!gl.getShaderParameter(shaderDeVertice, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(shaderDeVertice));
+      }
+
+      /* Se compila el shader de fragmento */
+      var shaderDeFragmento = gl.createShader(gl.FRAGMENT_SHADER);
+      gl.shaderSource(shaderDeFragmento, document.getElementById("fs").text.trim());
+      gl.compileShader(shaderDeFragmento);
+      if (!gl.getShaderParameter(shaderDeFragmento, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(shaderDeFragmento));
+      }
+
+      /* Se enlaza ambos shader */
+      programaID = gl.createProgram();
+      gl.attachShader(programaID, shaderDeVertice);
+      gl.attachShader(programaID, shaderDeFragmento);
+      gl.linkProgram(programaID);
+      if (!gl.getProgramParameter(programaID, gl.LINK_STATUS)) {
+        console.error(gl.getProgramInfoLog(programaID));
+      }
+
+      /* Se instala el programa de shaders para utilizarlo */
+      gl.useProgram(programaID);
+    }
+
+    /***************************************************************************/
+    /* Transformaciones mediante matrices                                      */
+    /***************************************************************************/
+
+    /* Convierte de grados a radianes */
+    function toRadians(grados) {
+      return grados * Math.PI / 180;
+    };
+
+    /* Matriz Identidad */
+    function identidad(r) {
+      r[0] = 1; r[4] = 0; r[8] = 0; r[12] = 0;
+      r[1] = 0; r[5] = 1; r[9] = 0; r[13] = 0;
+      r[2] = 0; r[6] = 0; r[10] = 1; r[14] = 0;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+    }
+
+    /* Traslación - glTranslatef */
+    function traslacion(matriz, tx, ty, tz) {
+      var r = new Array(16);
+      r[0] = 1; r[4] = 0; r[8] = 0; r[12] = tx;
+      r[1] = 0; r[5] = 1; r[9] = 0; r[13] = ty;
+      r[2] = 0; r[6] = 0; r[10] = 1; r[14] = tz;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+      multiplica(matriz, matriz, r);
+    }
+
+    /* Escalación - glScalef */
+    function escalacion(matriz, sx, sy, sz) {
+      var r = new Array(16);
+      r[0] = sx; r[4] = 0; r[8] = 0; r[12] = 0;
+      r[1] = 0; r[5] = sy; r[9] = 0; r[13] = 0;
+      r[2] = 0; r[6] = 0; r[10] = sz; r[14] = 0;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+      multiplica(matriz, matriz, r);
+    }
+
+    /* Rotación sobre X - glRotatef */
+    function rotacionX(matriz, theta) {
+      let r = new Array(16);
+      var c = Math.cos(toRadians(theta));
+      var s = Math.sin(toRadians(theta));
+      r[0] = 1; r[4] = 0; r[8] = 0; r[12] = 0;
+      r[1] = 0; r[5] = c; r[9] = -s; r[13] = 0;
+      r[2] = 0; r[6] = s; r[10] = c; r[14] = 0;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+      multiplica(matriz, matriz, r);
+    }
+
+    /* Rotación sobre Y - glRotatef */
+    function rotacionY(matriz, theta) {
+      let r = new Array(16);
+      var c = Math.cos(toRadians(theta));
+      var s = Math.sin(toRadians(theta));
+      r[0] = c; r[4] = 0; r[8] = s; r[12] = 0;
+      r[1] = 0; r[5] = 1; r[9] = 0; r[13] = 0;
+      r[2] = -s; r[6] = 0; r[10] = c; r[14] = 0;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+      multiplica(matriz, matriz, r);
+    }
+
+    /* Rotación sobre Z - glRotatef */
+    function rotacionZ(matriz, theta) {
+      let r = new Array(16);
+      var c = Math.cos(toRadians(theta));
+      var s = Math.sin(toRadians(theta));
+      r[0] = c; r[4] = -s; r[8] = 0; r[12] = 0;
+      r[1] = s; r[5] = c; r[9] = 0; r[13] = 0;
+      r[2] = 0; r[6] = 0; r[10] = 1; r[14] = 0;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+      multiplica(matriz, matriz, r);
+    }
+
+    /* Proyección Paralela - glOrtho */
+    function ortho(r, izq, der, abj, arr, cerca, lejos) {
+      r[0] = 2 / (der - izq); r[4] = 0; r[8] = 0; r[12] = -(der + izq) / (der - izq);
+      r[1] = 0; r[5] = 2 / (arr - abj); r[9] = 0; r[13] = -(arr + abj) / (arr - abj);
+      r[2] = 0; r[6] = 0; r[10] = -2 / (lejos - cerca); r[14] = -(lejos + cerca) / (lejos - cerca);
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+    }
+
+    /* Proyección Perspectiva - glFrustum */
+    function frustum(r, izq, der, abj, arr, cerca, lejos) {
+      r[0] = 2 * cerca / (der - izq); r[4] = 0; r[8] = (der + izq) / (der - izq); r[12] = 0;
+      r[1] = 0; r[5] = 2 * cerca / (arr - abj); r[9] = (arr + abj) / (arr - abj); r[13] = 0;
+      r[2] = 0; r[6] = 0; r[10] = -(lejos + cerca) / (lejos - cerca); r[14] = -2 * lejos * cerca / (lejos - cerca);
+      r[3] = 0; r[7] = 0; r[11] = -1; r[15] = 0;
+    }
+
+    /* Proyección Perspectiva - gluPerspective */
+    function perspective(r, fovy, aspecto, cerca, lejos) {
+      var ang = fovy * 0.5;
+      var f = (Math.abs(Math.sin(toRadians(ang))) < 1e-8 ? 0 : 1) / Math.tan(toRadians(ang));
+      r[0] = f / aspecto; r[4] = 0; r[8] = 0; r[12] = 0;
+      r[1] = 0; r[5] = f; r[9] = 0; r[13] = 0;
+      r[2] = 0; r[6] = 0; r[10] = -(lejos + cerca) / (lejos - cerca); r[14] = -2.0 * lejos * cerca / (lejos - cerca);
+      r[3] = 0; r[7] = 0; r[11] = - 1.0; r[15] = 0;
+    }
+
+    /* Multiplicación de matrices de 4 x 4 */
+    function multiplica(c, a, b) {
+      let r = new Array(16);
+      let i, j, k;
+      for (i = 0; i < 4; i++) {
+        for (j = 0; j < 4; j++) {
+          let s = 0;
+          for (k = 0; k < 4; k++)
+            s = s + a[i + k * 4] * b[k + j * 4];
+          r[i + j * 4] = s;
+        }
+      }
+      for (i = 0; i < 16; i++)
+        c[i] = r[i];
+    }
+
+    /***************************************************************************/
+    /* La Clase Vector3                                                        */
+    /***************************************************************************/
+
+    class Vector3 {
+
+      /**
+       * Construye un nuevo Vector.
+       */
+      constructor(x, y, z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+      }
+
+      /**
+       *                   u = Suma de vectores
+       *  u = v1 + v2     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+       *                   u = (v1.x + v2.x, v1.y + v2.y, v1.z + v2.z)
+       */
+      mas(v2) {
+        return (new Vector3(this.x + v2.x, this.y + v2.y, this.z + v2.z));
+      }
+
+      /**
+       *                   u = Resta de vectores
+       *  u = v1 - v2     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+       *                   u = (v1.x - v2.x, v1.y - v2.y, v1.z - v2.z)
+       */
+      menos(v2) {
+        return (new Vector3(this.x - v2.x, this.y - v2.y, this.z - v2.z));
+      }
+
+      /**
+       *                      u x v = Producto vectorial o producto cruz
+       * u = (u.x, u.y, u.z) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+       * v = (v.x, v.y, v.z)  u x v = (u.y * v.z - u.z * v.y,   
+       *                               u.z * v.x - u.x * v.z,
+       *                               u.x * v.y - u.y * v.x)                  
+       */
+      producto_vectorial(v2) {
+        var r = new Vector3();
+        r.x = (this.y * v2.z) - (this.z * v2.y);
+        r.y = (this.z * v2.x) - (this.x * v2.z);
+        r.z = (this.x * v2.y) - (this.y * v2.x);
+        return r;
+      }
+
+      /**
+       *                      u . v = Producto escalar o producto punto
+       * u = (u.x, u.y, u.z) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+       * v = (v.x, v.y, v.z)  u . v = u.x v.x + u.y v.y + u.z v.z
+       *                                          
+       */
+      producto_escalar(v2) {
+        return (this.x * v2.x) + (this.y * v2.y) + (this.z * v2.z);
+      }
+
+      /**
+       *                     |v| = Longitud de un vector o magnitud
+       * v = (x, y, z)    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+       *                     |v| = raiz_cuadrada (x^2 + y^2 + z^2) 
+       *                                          
+       */
+      longitud() {
+        return (Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z));
+      }
+
+      /**
+       *        v            u = Vector unitario o de longitud 1
+       *  u  = ---        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+       *       |v|           u = Vector normalizado
+       *                     
+       */
+      normaliza() {
+        var l = this.longitud();
+        if (l > 0) {
+          this.x = this.x / l;
+          this.y = this.y / l;
+          this.z = this.z / l;
+        }
+      }
+      /**
+       *    3
+       *     ^
+       *     |
+       *   v |
+       *     |
+       *    1 -------- > 2
+       */
+      normal(v1, v2, v3) {
+        var u = new Vector3(); // vector u
+        var v = new Vector3(); // vector v
+        var n = new Vector3(); // vector n
+
+        /* Calcula los vectores u y v */
+        u = v2.menos(v1);
+        v = v3.menos(v1);
+
+        /* n = u x v */
+        n = u.producto_vectorial(v);
+
+        /* Normaliza */
+        n.normaliza();
+
+        return n;
+      }
+
+      toString() {
+        return "Vector3 [x=" + this.x + ", y=" + this.y + ", z=" + this.z + "]";
+      }
+    }
+
+    /***************************************************************************/
+    /* ArcBall: Obtiene los vectores U y V de la esfera (x^2 + y^2 + z^2 = 1). */
+    /***************************************************************************/
+
+    var Punto2f = function (x, y) {
+      // Atributos publicos
+      this.x = x;
+      this.y = y;
+    }
+
+    class ArcBall {
+
+      /**
+       * Construye un nuevo ArcBall.
+       */
+      constructor(w, h) {
+        this.Epsilon = 1.0e-5;
+        this.U = new Vector3();
+        this.V = new Vector3();
+        this.ajusta(w, h);
+      }
+
+      /* Ajusta el ancho y alto de la ventana */
+      ajusta(w, h) {
+        if (!((w > 1.0) && (h > 1.0)))
+          document.write("ERROR");
+
+        /* Ajusta el factor para el ancho y alto (2 = [-1..1]) */
+        this.ajustaAncho = 2.0 / (w - 1.0);
+        this.ajustaAlto = 2.0 / (h - 1.0);
+      }
+
+      /* Obtiene el vector dado un punto (x,y) */
+      obtieneVector(vector, x, y) {
+        /* Copia punto */
+        let temp = new Punto2f(x, y);
+
+        /* Ajusta las coordenadas del punto al rango [-1..1] */
+        temp.x = (temp.x * this.ajustaAncho) - 1.0;
+        temp.y = 1.0 - (temp.y * this.ajustaAlto);
+
+        /* Calcula el cuadrado de la longitud del vector */
+        let longitud2 = (temp.x * temp.x) + (temp.y * temp.y);
+
+        /* 
+         * Considerando que: radio^2 = x^2 + y^2 + z^2
+         * ¿Cuales son los valores de x, y y z?
+         * 
+         * Si el punto está fuera de la esfera... (longitud2 > 1)
+         */
+
+        if (longitud2 > 1.0) {
+          /* Calcula un factor de normalización (radio / sqrt(longitud2)) */
+          let norma = (1.0 / Math.sqrt(longitud2));
+
+          /* Retorna el vector "normalizado", un punto sobre la esfera */
+          vector.x = temp.x * norma;
+          vector.y = temp.y * norma;
+          vector.z = 0.0;
+        } else { /* e.o.c. está dentro */
+          /*
+           * Retorna un vector, un punto dentro la esfera 
+           * z = sqrt(radio^cuadrado - (x^2 + y^2))
+           */
+          vector.x = temp.x;
+          vector.y = temp.y;
+          vector.z = Math.sqrt(1.0 - longitud2);
+        }
+      }
+
+      /* Obtiene el vector U */
+      primerPunto(x, y) {
+        this.obtieneVector(this.U, x, y);
+      }
+
+      /* Obtiene el Cuaternion de U y V */
+      segundoPunto(x, y) {
+
+        let q = new Cuaternion();
+
+        /* Obtiene el vector V */
+        this.obtieneVector(this.V, x, y);
+
+        /* Retorna el cuaternión equivalente a la rotación. */
+        if (q != null) {
+
+          /* Calcula la Normal = U x V */
+          let Normal = this.U.producto_vectorial(this.V);
+
+          /* Calcula la longitud de la normal */
+          if (Normal.longitud() > this.Epsilon) { /* si no es cero */
+            q.x = Normal.x;
+            q.y = Normal.y;
+            q.z = Normal.z;
+            /* w  = (theta / 2), donde theta es el ángulo de rotación */
+            q.w = this.U.producto_escalar(this.V);
+          } else { /* si es cero */
+            /* U y V coinciden */
+            q.x = q.y = q.z = q.w = 0.0;
+          }
+        }
+        return q;
+      }
+    }
+
+    /***************************************************************************/
+    /* Cuaternion: Realiza las operaciones de los cuaterniones.                */
+    /***************************************************************************/
+
+    class Cuaternion {
+
+      /**
+       * Construye un nuevo Cuaternion.
+       */
+      constructor(w, x, y, z) {
+        this.w = w;
+        this.x = x;
+        this.y = y;
+        this.z = z;
+      }
+
+      inicializa(w, v) {
+        this.w = w;
+        this.x = v.x;
+        this.y = v.y;
+        this.z = v.z;
+      }
+
+      // norma^2 = w^2 + x^2 + y^2 + z^2
+      norma2() {
+        return (this.w * this.w + this.x * this.x + this.y * this.y + this.z * this.z);
+      }
+
+      // Conjugado
+      conjugado() {
+        x = -this.x;
+        y = -this.y;
+        z = -this.z;
+        return this;
+      }
+
+      // Cuaternion q = Cuaternion a . Cuaternion b
+      multiplica(a, b) {
+        let q = new Cuaternion(0, 0, 0, 0);
+        q.w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z;
+        q.x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y;
+        q.y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x;
+        q.z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w;
+        return q;
+      }
+
+      // Cuaternion q = Cuaternion a . b
+      multiplica_escalar(a, b) {
+        let q = new Cuaternion(0, 0, 0, 0);
+        q.w = a.w * b;
+        q.x = a.x * b;
+        q.y = a.y * b;
+        q.z = a.z * b;
+        return q;
+      }
+
+      // q' = q . p . q^(-1)
+      rota(q, p) {   // q es Cuaternion y p es Vector3
+        let p_homogeneo = new Cuaternion(0, 0, 0, 0);
+        p_homogeneo.inicializa(0, p);
+        let p_prima = this.multiplica(q, this.multiplica(p_homogeneo, q.inverso()));
+        return (new Vector3(p_prima.x, p_prima.y, p_prima.z));
+      }
+
+      // q' = q . p . q*
+      rota1(q, p) {  // q es Cuaternion y p es Vector3
+        let p_homogeneo = new Cuaternion(0, 0, 0, 0);
+        p_homogeneo.inicializa(0, p);
+        let p_prima = this.multiplica(q, this.multiplica(p_homogeneo, q.conjugado()));
+        return (new Vector3(p_prima.x, p_prima.y, p_prima.z));
+      }
+
+      // q = q^(-1)
+      inverso() {
+        let q = new Cuaternion(0, 0, 0, 0);
+        // normal^2 = a . b
+        let n = this.norma2();
+        if (n <= 1e-8)
+          document.write("INVERSO: Error");
+        q = multiplica_escalar(new Cuaternion(this.w, -this.x, -this.y, -this.z), 1 / n);
+        return q;
+      }
+
+      /* Convierte el cuaternión a una matriz de rotación */
+      static rota2(a, q) {
+        let d, s;
+        d = (q.x * q.x) + (q.y * q.y) + (q.z * q.z) + (q.w * q.w);
+        s = (d > 0.0) ? (2.0 / d) : 0.0;
+        a[0] = 1.0 - (q.y * q.y + q.z * q.z) * s; a[4] = (q.x * q.y - q.w * q.z) * s; a[8] = (q.x * q.z + q.w * q.y) * s; a[12] = 0;
+        a[1] = (q.x * q.y + q.w * q.z) * s; a[5] = 1.0 - (q.x * q.x + q.z * q.z) * s; a[9] = (q.y * q.z - q.w * q.x) * s; a[13] = 0;
+        a[2] = (q.x * q.z - q.w * q.y) * s; a[6] = (q.y * q.z + q.w * q.x) * s; a[10] = 1.0 - (q.x * q.x + q.y * q.y) * s; a[14] = 0;
+        a[3] = 0; a[7] = 0; a[11] = 0; a[15] = 1;
+      }
+
+      toString() {
+        return "Cuaternion [w=" + this.w + ", x=" + this.x + ", y=" + this.y + ", z=" + this.z + "]";
+      }
+    }
+
+    /***********************************************************************************/
+    /* Se define la geometría y se almacenan en los buffers de memoria y se renderiza. */
+    /***********************************************************************************/
+    class Grupo {
+      constructor() {
+        this.nombre = "si_falta";       /* Nombre del grupo */
+        this.triangulos = new Array();  /* Arreglo de índice de triangulos */
+        this.material = 0;              /* Indice del color del material del grupo */
+      }
+      setNombre(nombre) {
+        this.nombre = nombre;
+      }
+      getNombre() {
+        return this.nombre;
+      }
+      adiTriangulo(t) {
+        this.triangulos.push(t);
+      }
+      getTriangulo(indice) {
+        return this.triangulos[indice];
+      }
+      getNumTriangulos() {
+        return this.triangulos.length;
+      }
+      setMaterial(material) {
+        this.material = material;
+      }
+      getMaterial() {
+        return this.material;
+      }
+      toString() {
+        return this.nombre +
+          "<br> triangulos: " + this.triangulos +
+          "<br> material  : " + this.material;
+      }
+    }
+
+    class Material {
+      constructor() {
+        this.nombre = "si_falta";    /* Nombre del material */
+        this.ambiente = [0.2, 0.2, 0.2]; /* Arreglo del color ambiente */
+        this.difuso = [0.8, 0.8, 0.8]; /* Arreglo del color difuso */
+        this.especular = [0.0, 0.0, 0.0]; /* Arreglo del color especular */
+        this.brillo = 0;             /* Exponente del brillo */
+      }
+      setNombre(nombre) {
+        this.nombre = nombre;
+      }
+      getNombre() {
+        return this.nombre;
+      }
+      setAmbiente(ambiente) {
+        this.ambiente = ambiente;
+      }
+      getAmbiente() {
+        return this.ambiente;
+      }
+      setDifuso(difuso) {
+        this.difuso = difuso;
+      }
+      getDifuso() {
+        return this.difuso;
+      }
+      setEspecular(especular) {
+        this.especular = especular;
+      }
+      getEspecular() {
+        return this.especular;
+      }
+      setBrillo(brillo) {
+        this.brillo = brillo;
+      }
+      getBrillo() {
+        return this.brillo;
+      }
+      toString() {
+        return this.nombre +
+          "<br> Ka: " + this.ambiente +
+          "<br> Kd: " + this.difuso +
+          "<br> Ks: " + this.especular +
+          "<br> Ns: " + this.brillo;
+      }
+    }
+
+    class Cadena {
+      constructor(cadena) {
+        this.cadena = cadena;
+        this.indice = 0;
+      }
+      esDelimitador(c) {
+        return (
+          c == ' ' ||
+          c == '\t' ||
+          c == '(' ||
+          c == ')' ||
+          c == '"' ||
+          c == "'"
+        );
+      }
+      saltaDelimitadores() {
+        let n = this.cadena.length;
+        while (this.indice < n &&
+          this.esDelimitador(this.cadena.charAt(this.indice))) {
+          this.indice++;
+        }
+      };
+      obtLongPalabra(inicio) {
+        var i = inicio;
+        while (i < this.cadena.length &&
+          !this.esDelimitador(this.cadena.charAt(i))) {
+          i++;
+        }
+        return i - inicio;
+      };
+      getToken() {
+        var n, subcadena;
+        this.saltaDelimitadores();
+        n = this.obtLongPalabra(this.indice);
+        if (n === 0) {
+          return null;
+        }
+        subcadena = this.cadena.substr(this.indice, n);
+        this.indice = this.indice + (n + 1);
+        return subcadena.trim();
+      }
+      getInt() {
+        var token = this.getToken();
+        if (token) {
+          return parseInt(token, 10);
+        }
+        return null;
+      }
+      getFloat() {
+        var token = this.getToken();
+        if (token) {
+          return parseFloat(token);
+        }
+        return null;
+      }
+    }
+
+    class Objeto {
+      constructor(gl, nombreArchivo) {
+        var lineas, token, x, y, z, a, b;
+        var minX, maxX, minY, maxY, minZ, maxZ;
+        var numVertices, numTriangulos, indiceDeGrupo;
+        var hayGrupos;
+        this.vertices = [];
+        this.indices = [];
+
+        /* Número de Vértices */
+        numVertices = 0;
+
+        /* Número de Triángulos */
+        numTriangulos = 0;
+
+        /* Arreglo de Grupos */
+        this.grupos = [];
+
+        hayGrupos = false;
+
+        /* Arreglo de los colores de los Materiales */
+        this.materiales = [];
+
+        /* Lee el archivo .obj */
+        let datos_obj = this.leeArchivo(nombreArchivo);
+
+        /* Divide por lineas */
+        lineas = datos_obj.split("\n");
+
+        minX = Number.MAX_VALUE; maxX = Number.MIN_VALUE;
+        minY = Number.MAX_VALUE; maxY = Number.MIN_VALUE;
+        minZ = Number.MAX_VALUE; maxZ = Number.MIN_VALUE;
+
+        for (let i = 0; i < lineas.length; i++) {
+          let cad = new Cadena(lineas[i]); // Inicia el procesamiento de cadenas
+          token = cad.getToken();
+          if (token != null) {
+            switch (token) {
+              case '#':
+                continue;
+              case 'mtllib': /* nombre del arch. de materiales */
+                let nombreArchivoMTL = cad.getToken();
+                this.lee_datos_archivo_mtl(nombreArchivoMTL);
+                break;
+              case 'v': /* vértice */
+                x = cad.getFloat();
+                y = cad.getFloat();
+                z = cad.getFloat();
+                this.vertices.push(x);
+                this.vertices.push(y);
+                this.vertices.push(z);
+                numVertices++;
+                minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+                minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+                break;
+              case 'g':
+              case 'group': /* nombre de grupo */
+                let nombreGrupo = cad.getToken();
+                indiceDeGrupo = this.buscaGrupo(nombreGrupo);
+                if (indiceDeGrupo == -1) {
+                  /* Agrega a la lista de grupo un nuevo grupo*/
+                  let grupo = new Grupo();
+                  grupo.setNombre(nombreGrupo);
+                  this.grupos.push(grupo);         /* Guarda en el arreglo de grupos */
+                  indiceDeGrupo = this.grupos.length - 1;
+                }
+                hayGrupos = true;
+                break;
+              case 'usemtl': /* nombre del material */
+                let nombreMaterial = cad.getToken();
+                let indiceDeMaterial = this.buscaMaterial(nombreMaterial);
+                if (!hayGrupos) { // Si no hay un grupo
+                  indiceDeGrupo = this.buscaMaterialPorGrupo(indiceDeMaterial);
+                  if (indiceDeGrupo == -1) {
+                    /* Agrega a la lista de grupo un nuevo grupo*/
+                    let grupo = new Grupo();
+                    grupo.setNombre(nombreMaterial);
+                    this.grupos.push(grupo);         /* Guarda en el arreglo de grupos */
+                    indiceDeGrupo = this.grupos.length - 1;
+                  }
+                }
+                /* Asigna al grupo el indice del material */
+                this.grupos[indiceDeGrupo].setMaterial(indiceDeMaterial);
+                break;
+              case 'f': /* cara */
+                a = cad.getInt() - 1;
+                this.indices.push(a); // v0
+                b = cad.getInt() - 1;
+                this.indices.push(b); // v1
+                b = cad.getInt() - 1;
+                this.indices.push(b); // v2
+
+                /* Asigna al grupo el indice del material */
+                this.grupos[indiceDeGrupo].adiTriangulo(numTriangulos);
+
+                numTriangulos++;
+
+                var tokenEntero = cad.getInt();
+                while (tokenEntero != null) {
+
+                  this.indices.push(a);    // v0
+                  this.indices.push(b);    // v2
+                  b = tokenEntero - 1;
+                  this.indices.push(b);    // v3
+
+                  /* Asigna al grupo el indice del material */
+                  this.grupos[indiceDeGrupo].adiTriangulo(numTriangulos);
+
+                  numTriangulos++;
+
+                  tokenEntero = cad.getInt();
+                }
+
+                break;
+            }
+          }
+        }
+
+        /* Redimensiona las coordenadas entre [-1,1] */
+        var tam_max = 0, escala;
+        tam_max = Math.max(tam_max, maxX - minX);
+        tam_max = Math.max(tam_max, maxY - minY);
+        tam_max = Math.max(tam_max, maxZ - minZ);
+        escala = 2.0 / tam_max;
+
+        /* Actualiza los vértices */
+        for (let i = 0; i < numVertices * 3; i += 3) {
+          this.vertices[i] = escala * (this.vertices[i] - minX) - 1.0;
+          this.vertices[i + 1] = escala * (this.vertices[i + 1] - minY) - 1.0;
+          this.vertices[i + 2] = escala * (this.vertices[i + 2] - minZ) - 1.0;
+        }
+        console.log("Cant. vértices: ", this.vertices.length / 3);
+        console.log(this.vertices.length);
+        for (let i = 0; i < this.vertices.length; i += 3) {
+          console.log(i + " : " + this.vertices[i] + "  " + this.vertices[i + 1] + "  " + this.vertices[i + 2])
+        }
+
+        console.log(this.indices.length);
+        for (let i = 0; i < this.indices.length; i += 6) {
+          console.log(i + " : " + this.indices[i] + "  " + this.indices[i + 1] + "  " + this.indices[i + 2] + "  " + this.indices[i + 3] + "  " + this.indices[i + 4] + "  " + this.indices[i + 5])
+        }
+
+        console.log("grupos: " + this.grupos.length);
+        for (let i = 0; i < this.grupos.length; i++) {
+          console.log(i + " : " + this.grupos[i].toString() + " " + this.materiales[this.grupos[i].getMaterial()].getNombre());
+        }
+
+        console.log("materiales: " + this.materiales.length);
+        for (let i = 0; i < this.materiales.length; i++) {
+          console.log(i + " : " + this.materiales[i].toString());
+        }
+
+        console.log("num triangulos: " + numTriangulos);
+      }
+
+      dibuja(gl) {
+        gl.uniform1i(uUsarColorUniforme, 1);
+        var numTriangulos, indiceDeMaterial, color, k;
+        for (let i = 0; i < this.grupos.length; i++) {
+
+          /* Obtiene el número de triángulos del grupo */
+          numTriangulos = this.grupos[i].getNumTriangulos();
+
+          if (numTriangulos == 0)
+            continue;
+
+          /* Obtiene los indices */
+          let indAux = new Uint16Array(numTriangulos * 3);
+
+          for (let j = 0; j < numTriangulos; j++) {
+            k = j * 3;
+
+            /* Lee del grupo i el número de triángulo j */
+            let numTrian = this.grupos[i].getTriangulo(j);
+
+            indAux[k] = this.indices[numTrian * 3 + 0];
+            indAux[k + 1] = this.indices[numTrian * 3 + 1];
+            indAux[k + 2] = this.indices[numTrian * 3 + 2];
+          }
+
+          /* Se crea el objeto del arreglo de vértices (VAO) */
+          //this.objetoVAO = gl.createVertexArray();
+
+          /* Se activa el objeto */
+          //gl.bindVertexArray(this.objetoVAO);
+
+          var codigoVertices = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+          gl.enableVertexAttribArray(0);
+          gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+          this.codigoDeIndices = gl.createBuffer();
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.codigoDeIndices);
+          gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indAux), gl.STATIC_DRAW);
+
+          indiceDeMaterial = this.grupos[i].getMaterial();
+
+          /* Lee el color */
+          //color = this.materiales[indiceDeMaterial].getAmbiente();
+          color = this.materiales[indiceDeMaterial].getDifuso();
+
+          gl.uniform4f(uColor, color[0], color[1], color[2], 1);
+          gl.drawElements(gl.TRIANGLES, numTriangulos * 3, gl.UNSIGNED_SHORT, 0);
+
+          gl.bindVertexArray(null);
+          gl.bindBuffer(gl.ARRAY_BUFFER, null);
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+        }
+      }
+
+      /* Lee el archivo OBJ */
+      leeArchivo(nombreArchivo) {
+        var byteArray = [];
+        var request = new XMLHttpRequest();
+        request.onreadystatechange = function () {
+          if (request.readyState === 4 && request.status !== 404) {
+            byteArray = request.responseText
+          }
+        }
+        request.open('GET', nombreArchivo, false); // Crea una solicitud para abrir el archivo
+        request.send(null);                        // Enviando la solicitud
+        return byteArray;
+      }
+
+      /* Lee los datos de un archivo .MTL (archivo de los colores de los materiales) */
+      lee_datos_archivo_mtl(nombreArchivoMTL) {
+
+        let datos_mtl = this.leeArchivo("Modelos/" + nombreArchivoMTL);
+
+        /* Divide por lineas */
+        let lineas = datos_mtl.split('\n');
+
+        let token;
+        for (let i = 0; i < lineas.length; i++) {
+          let cad = new Cadena(lineas[i]); // Inicia el procesamiento de cadenas 
+          token = cad.getToken();
+          if (token != null) {
+            switch (token) {
+              case '#':
+                continue;
+              case 'newmtl':  /* nombre del material */
+                let nombreMaterial = cad.getToken();
+                let material = new Material();
+                material.setNombre(nombreMaterial);
+                this.materiales.push(material);
+                break;
+              case 'Ka':      /* ambiente */
+                let ambiente = new Array(3);
+                ambiente[0] = cad.getFloat();
+                ambiente[1] = cad.getFloat();
+                ambiente[2] = cad.getFloat();
+                this.materiales[this.materiales.length - 1].setAmbiente(ambiente);
+                break;
+              case 'Kd':      /* difuso */
+                var difuso = new Array(3);
+                difuso[0] = cad.getFloat();
+                difuso[1] = cad.getFloat();
+                difuso[2] = cad.getFloat();
+                this.materiales[this.materiales.length - 1].setDifuso(difuso);
+                break;
+              case 'Ks':      /* especular */
+                var especular = new Array(3);
+                especular[0] = cad.getFloat();
+                especular[1] = cad.getFloat();
+                especular[2] = cad.getFloat();
+                this.materiales[this.materiales.length - 1].setEspecular(especular);
+                break;
+              case 'Ns':      /* brillo */
+                var brillo = cad.getFloat();
+                this.materiales[this.materiales.length - 1].setBrillo(brillo);
+                break;
+            }
+          }
+        }
+      }
+
+      /* Busca el grupo */
+      buscaGrupo(nombre) {
+        for (let i = 0; i < this.grupos.length; i++)
+          if (nombre == this.grupos[i].getNombre())
+            return i;
+        return -1;
+      }
+
+      /* Busca el Material */
+      buscaMaterial(nombre) {
+        for (let i = 0; i < this.materiales.length; i++)
+          if (nombre == this.materiales[i].getNombre())
+            return i;
+        return -1;
+      }
+
+      /* Busca el Material que se encuentra en el grupo */
+      buscaMaterialPorGrupo(indice) {
+        for (let i = 0; i < this.grupos.length; i++)
+          if (indice == this.grupos[i].getMaterial())
+            return i;
+        return -1;
+      }
+    }
+
+    class Cubo {
+      constructor(gl) {
+
+        /**
+         *       3 --------- 2
+         *       /|        /|   
+         *      / |       / |
+         *    7 --------- 6 |
+         *     |  |      |  |
+         *     | 0 ------|-- 1 
+         *     | /       | /
+         *     |/        |/
+         *    4 --------- 5  
+         */
+
+        /* Las coordenadas cartesianas (x, y, z) */
+        var vertices = [
+          // Frente
+          -1, -1, 1, // 4   0
+          1, -1, 1, // 5   1
+          1, 1, 1, // 6   2
+          -1, 1, 1, // 7   3
+          // Atrás
+          -1, 1, -1, // 3   4
+          1, 1, -1, // 2   5
+          1, -1, -1, // 1   6
+          -1, -1, -1, // 0   7
+          // Izquierda
+          -1, -1, -1, // 0   8
+          -1, -1, 1, // 4   9
+          -1, 1, 1, // 7  10 
+          -1, 1, -1, // 3  11
+          // Derecha
+          1, -1, 1, // 5  12 
+          1, -1, -1, // 1  13
+          1, 1, -1, // 2  14
+          1, 1, 1, // 6  15
+          // Abajo
+          -1, -1, -1, // 0  16
+          1, -1, -1, // 1  17
+          1, -1, 1, // 5  18
+          -1, -1, 1, // 4  19
+          // Arriba
+          -1, 1, 1, // 7  20
+          1, 1, 1, // 6  21
+          1, 1, -1, // 2  22
+          -1, 1, -1  // 3  23
+        ];
+
+        /* Los colores x c/vértice (r,g,b,a) */
+        var colores = [
+          // Frente - verde pasto (RGB 34,139,34)
+          0.50, 0.545, 0.133, 1.0, // 4   0
+          0.50, 0.545, 0.133, 1.0, // 5   1
+          0.50, 0.545, 0.133, 1.0, // 6   2
+          0.50, 0.545, 0.133, 1.0, // 7   3	
+          // Atrás - verde pasto
+          0.50, 0.545, 0.133, 1.0, // 3   4	
+          0.50, 0.545, 0.133, 1.0, // 2   5
+          0.50, 0.545, 0.133, 1.0, // 1   6	
+          0.50, 0.545, 0.133, 1.0, // 0   7	
+          // Izquierda - verde pasto
+          0.50, 0.545, 0.133, 1.0, // 0   8
+          0.50, 0.545, 0.133, 1.0, // 4   9
+          0.50, 0.545, 0.133, 1.0, // 7  10
+          0.50, 0.545, 0.133, 1.0, // 3  11
+          // Derecha - verde pasto
+          0.50, 0.545, 0.133, 1.0, // 5  12
+          0.50, 0.545, 0.133, 1.0, // 1  13
+          0.50, 0.545, 0.133, 1.0, // 2  14
+          0.50, 0.545, 0.133, 1.0, // 6  15
+          // Abajo - verde pasto
+          25 / 255, 70 / 255, 25 / 255, 1.0, // 0  16
+          25 / 255, 70 / 255, 25 / 255, 1.0, // 1  17
+          25 / 255, 70 / 255, 25 / 255, 1.0, // 5  18
+          25 / 255, 70 / 255, 25 / 255, 1.0, // 4  19
+          // Arriba - verde pasto
+          0.133, 0.545, 0.133, 1.0, // 7  20
+          0.133, 0.545, 0.133, 1.0, // 6  21
+          0.133, 0.545, 0.133, 1.0, // 2  22
+          0.133, 0.545, 0.133, 1.0  // 3  23
+        ];
+
+        /* Indices */
+        var indices = [
+          0, 1, 2, 0, 2, 3, // Frente
+          4, 5, 6, 4, 6, 7, // Atrás
+          8, 9, 10, 8, 10, 11, // Izquierda 
+          12, 13, 14, 12, 14, 15, // Derecha
+          16, 17, 18, 16, 18, 19, // Abajo
+          20, 21, 22, 20, 22, 23  // Arriba
+        ];
+
+        this.cuboVAO = gl.createVertexArray();
+        gl.bindVertexArray(this.cuboVAO);
+
+        var codigoVertices = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+        var codigoColores = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, codigoColores);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colores), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(1);
+        gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+        var codigoDeIndices = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, codigoDeIndices);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+        gl.bindVertexArray(null);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+      }
+
+      dibuja(gl) {
+        gl.bindVertexArray(this.cuboVAO);
+        gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+        gl.bindVertexArray(null);
+      }
+    }
+
+    class LetraJ {
+      constructor(gl, vertices, indices) {
+        this.vertices = vertices;
+        this.letraJVAO = gl.createVertexArray();
+        gl.bindVertexArray(this.letraJVAO);
+        var codigoVertices = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, codigoVertices);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+        var codigoDeIndices = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, codigoDeIndices);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+        gl.bindVertexArray(null);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+        this.cantidadDeIndices = indices.length;
+        this.indicesDibujados = 0;
+        this.tiempoUltimoIncremento = Date.now();
+        this.intervalo = 10;
+      }
+
+      dibuja(gl) {
+        /* Se activa el objeto del arreglo de vértices */
+        gl.bindVertexArray(this.letraJVAO);
+
+        /* Renderiza las primitivas desde los datos de los arreglos (vértices e índices) */
+        gl.drawElements(gl.LINES, this.cantidadDeIndices, gl.UNSIGNED_SHORT, 0);
+
+        /* Se desactiva el objeto del arreglo de vértices */
+        gl.bindVertexArray(null);
+      }
+    }
+
+    function lookAt(r, vistaX, vistaY, vistaZ, centroX, centroY, centroZ, arribaX, arribaY, arribaZ) {
+      var vista = new Vector3(vistaX, vistaY, vistaZ);
+      var centro = new Vector3(centroX, centroY, centroZ);
+      var arriba = new Vector3(arribaX, arribaY, arribaZ);
+
+      var n = vista.menos(centro);
+      n.normaliza();
+      var v = arriba;
+      var u = v.producto_vectorial(n);
+      u.normaliza();
+      v = n.producto_vectorial(u);
+
+      r[0] = u.x; r[4] = u.y; r[8] = u.z; r[12] = -(vistaX * u.x + vistaY * u.y + vistaZ * u.z);
+      r[1] = v.x; r[5] = v.y; r[9] = v.z; r[13] = -(vistaX * v.x + vistaY * v.y + vistaZ * v.z);
+      r[2] = n.x; r[6] = n.y; r[10] = n.z; r[14] = -(vistaX * n.x + vistaY * n.y + vistaZ * n.z);
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+    }
+
+    function multiplicaMV(resultado, matriz, vector) {
+      resultado[0] = matriz[0] * vector[0] + matriz[4] * vector[1] + matriz[8] * vector[2] + matriz[12] * (vector[3] || 0);
+      resultado[1] = matriz[1] * vector[0] + matriz[5] * vector[1] + matriz[9] * vector[2] + matriz[13] * (vector[3] || 0);
+      resultado[2] = matriz[2] * vector[0] + matriz[6] * vector[1] + matriz[10] * vector[2] + matriz[14] * (vector[3] || 0);
+      // Si necesitas el cuarto componente:
+      resultado[3] = matriz[3] * vector[0] + matriz[7] * vector[1] + matriz[11] * vector[2] + matriz[15] * (vector[3] || 0);
+    }
+
+
+
+
+
+    /***************************************************************************/
+    /* Eventos del Ratón                                                       */
+    /***************************************************************************/
+
+    function mouseDown(event) {
+      var posx = new Number();
+      var posy = new Number();
+
+      /* Obtiene la coordenada dentro de la área mayor */
+      if (event.x != undefined && event.y != undefined) {
+        posx = event.x;
+        posy = event.y;
+      } else {
+        posx = event.clientX + document.body.scrollLeft + document.documentElement.scrollLeft;
+        posy = event.clientY + document.body.scrollTop + document.documentElement.scrollTop;
+      }
+
+      /* Obtiene la coordenada dentro del canvas */
+      posx = posx - canvas.offsetLeft;
+      posy = posy - canvas.offsetTop;
+
+      /* Matriz = MatrizRotacion */
+      Matriz = MatrizRotacion.slice(); /* Copia */
+      arcBall.primerPunto(posx, posy);
+
+      boton_izq_presionado = true;
+
+      return false;
+    };
+
+    function mouseUp(e) {
+      boton_izq_presionado = false;
+    };
+
+    function mouseMove(event) {
+      if (!boton_izq_presionado)
+        return false;
+
+      var posx = new Number();
+      var posy = new Number();
+
+      /* Obtiene la coordenada dentro de la área mayor */
+      if (event.x != undefined && event.y != undefined) {
+        posx = event.x;
+        posy = event.y;
+      } else {
+        posx = event.clientX + document.body.scrollLeft + document.documentElement.scrollLeft;
+        posy = event.clientY + document.body.scrollTop + document.documentElement.scrollTop;
+      }
+
+      /* Obtiene la coordenada dentro del canvas */
+      posx = posx - canvas.offsetLeft;
+      posy = posy - canvas.offsetTop;
+
+      /* Actualiza el segundo vector y obtiene el cuaternión */
+      let q = arcBall.segundoPunto(posx, posy);
+
+      /* Convierte el cuaternión a una matriz de rotación */
+      Cuaternion.rota2(MatrizRotacion, q);
+
+      /* MatrizRotacion = MatrizRotacion * Matriz */
+      multiplica(MatrizRotacion, MatrizRotacion, Matriz);
+
+    };
+
+
+    const posicionesArboles = [
+      [-1, 2, -2], // esquina izquierda-adelante
+      [2, 2, -2], // esquina derecha-adelante
+      [-2, 2, 2], // esquina izquierda-atras
+      [4, 2, 2]  // esquina derecha-atras
+    ];
+
+    const posicionesMontanas = [
+      [-3, 1.5, -3], // esquina izquierda-adelante
+      [3, 1.5, -3], // esquina derecha-adelante
+      [-3, 1.5, 3], // esquina izquierda-atras
+      [3, 1.5, 3]  // esquina derecha-atras
+    ];
+
+    function dibuja() {
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+      let left = -5 * zoom * gl.canvas.width / gl.canvas.height;
+      let right = 5 * zoom * gl.canvas.width / gl.canvas.height;
+      let bottom = -5 * zoom;
+      let top = 5 * zoom;
+      ortho(MatrizProyeccion, left, right, bottom, top, -20, 20);
+      gl.uniformMatrix4fv(uMatrizProyeccion, false, MatrizProyeccion);
+
+
+      /* Matriz del Modelo */
+      identidad(MatrizModelo);
+      multiplica(MatrizModelo, MatrizModelo, MatrizRotacion);
+      escalacion(MatrizModelo, 5, 0.1, 5);
+      gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+      gl.uniform1i(gl.getUniformLocation(programaID, "uUsarColorUniforme"), 0);
+      cubo.dibuja(gl);
+
+      identidad(MatrizModelo);
+      multiplica(MatrizModelo, MatrizModelo, MatrizRotacion);
+      traslacion(MatrizModelo, 1, 1.5, 0);
+      escalacion(MatrizModelo, 1.5, 1.5, 1.5);
+      gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+      gl.uniform1i(gl.getUniformLocation(programaID, "uUsarColorUniforme"), 0);
+      caseta.dibuja(gl);
+
+      for (let i = 0; i < posicionesMontanas.length; i++) {
+        identidad(MatrizModelo);
+        multiplica(MatrizModelo, MatrizModelo, MatrizRotacion);
+        traslacion(MatrizModelo, posicionesMontanas[i][0], posicionesMontanas[i][1], posicionesMontanas[i][2]);
+        escalacion(MatrizModelo, 1.5, 1.5, 1.5); // Ajusta el tamaño si es necesario
+        gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+        gl.uniform1i(uUsarColorUniforme, 1);
+        montana.dibuja(gl);
+      }
+
+      for (let i = 0; i < posicionesTroncos.length; i++) {
+        identidad(MatrizModelo);
+        multiplica(MatrizModelo, MatrizModelo, MatrizRotacion);
+        traslacion(MatrizModelo, posicionesTroncos[i][0], posicionesTroncos[i][1], posicionesTroncos[i][2]);
+        escalacion(MatrizModelo, 0.7, 0.7, 0.7); // Ajusta el tamaño del tronco si es necesario
+        gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+        tronco.dibuja(gl);
+      }
+
+
+      for (let i = 0; i < posicionesArboles.length; i++) {
+        identidad(MatrizModelo);
+        multiplica(MatrizModelo, MatrizModelo, MatrizRotacion); // misma rotación que el cubo
+        traslacion(MatrizModelo, posicionesArboles[i][0], posicionesArboles[i][1], posicionesArboles[i][2]);
+        escalacion(MatrizModelo, 2, 2, 2); // ajusta el tamaño si es necesario
+        gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+        arbol.dibuja(gl);
+      }
+
+
+      if (letras && letras.length > 0) {
+        for (let i = 0; i < letras.length; i++) {
+          identidad(MatrizModelo);
+          multiplica(MatrizModelo, MatrizModelo, MatrizRotacion);
+          traslacion(MatrizModelo, -5 + i * 2.5, 2.45, -4.5);
+          escalacion(MatrizModelo, 3, -3, 3);
+          gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+          const color = coloresLetras[i % coloresLetras.length];
+          gl.uniform4f(uColor, color[0], color[1], color[2], color[3]);
+          letras[i].dibuja(gl);
+        }
+      }
+
+
+
+      requestAnimationFrame(dibuja);
+    }
+
+
+    function reinicia() {
+      /* Matriz de Rotación */
+      identidad(MatrizRotacion);
+      identidad(MatrizVista);
+
+      dibuja();
+    }
+
+    function main() {
+      canvas = document.getElementById("webglcanvas");
+      canvas.width = window.innerWidth;   // devuelve el ancho de la ventana
+      canvas.height = window.innerHeight; // devuelve el alto de la ventana
+      gl = canvas.getContext("webgl2");
+      if (!gl) {
+        document.write("WebGL 2.0 no está disponible en tu navegador");
+        return;
+      }
+
+      /* Para detectar los eventos del ratón */
+      canvas.addEventListener("mousedown", mouseDown, false);
+      canvas.addEventListener("mouseup", mouseUp, false);
+      canvas.addEventListener("mouseout", mouseUp, false);
+      canvas.addEventListener("mousemove", mouseMove, false);
+      document.getElementById("reset").onclick = reinicia;
+
+
+      canvas.addEventListener("wheel", function (event) {
+        // Ajusta la sensibilidad del zoom
+        const zoomSpeed = 0.1;
+        if (event.deltaY < 0) {
+          zoom *= (1 - zoomSpeed); // Acercar
+        } else {
+          zoom *= (1 + zoomSpeed); // Alejar
+        }
+        // Limita el zoom
+        if (zoom < 0.2) zoom = 0.2;
+        if (zoom > 5.0) zoom = 5.0;
+        dibuja();
+        event.preventDefault();
+      });
+
+      document.addEventListener("keydown", function (event) {
+        let Matriz = new Array(16);
+        let direccion = new Array(3);
+        if (event.key == "ArrowUp") {
+          identidad(Matriz);
+          rotacionY(Matriz, rotY);
+          multiplicaMV(direccion, Matriz, direccionInicial);
+          posicion[0] = posicion[0] + direccion[0] * 0.1;
+          posicion[1] = posicion[1] + direccion[1] * 0.1;
+          posicion[2] = posicion[2] + direccion[2] * 0.1;
+          dibuja();
+        } else if (event.key == "ArrowDown") {
+          identidad(Matriz);
+          rotacionY(Matriz, rotY);
+          multiplicaMV(direccion, Matriz, direccionInicial);
+          posicion[0] = posicion[0] - direccion[0] * 0.1;
+          posicion[1] = posicion[1] - direccion[1] * 0.1;
+          posicion[2] = posicion[2] - direccion[2] * 0.1;
+          dibuja();
+        } else if (event.key == "ArrowRight") {
+          rotY = rotY - 5;
+          dibuja();
+        } else if (event.key == "ArrowLeft") {
+          rotY = rotY + 5;
+          dibuja();
+        }
+      });
+
+      gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+      compilaEnlazaLosShaders();
+
+      cubo = new Cubo(gl);
+      arcBall = new ArcBall(500.0, 500.0);
+      arbol = new Objeto(gl, "Modelos/arbol2.obj");
+      caseta = new Objeto(gl, "Modelos/wooden.obj");
+      tronco = new Objeto(gl, "Modelos/DeadTree.obj");
+      montana = new Objeto(gl, "Modelos/montana.obj");
+      Promise.all([
+        fetch("letra_j.json").then(response => response.json()),
+        fetch("letra_o.json").then(response => response.json()),
+        fetch("letra_s.json").then(response => response.json()),
+        fetch("letra_e.json").then(response => response.json())
+      ])
+        .then(data => {
+          console.log("Archivos JSON cargados correctamente:", data);
+
+          letras = [
+            new LetraJ(gl, data[0].vertices, data[0].indices),
+            new LetraJ(gl, data[1].vertices, data[1].indices),
+            new LetraJ(gl, data[2].vertices, data[2].indices),
+            new LetraJ(gl, data[3].vertices, data[3].indices)
+          ];
+        })
+        .catch(error => console.error("Error al cargar los archivos JSON:", error));
+
+      gl.lineWidth(1);
+
+
+
+      gl.useProgram(programaID);
+      uColor = gl.getUniformLocation(programaID, "uColor");
+      uMatrizProyeccion = gl.getUniformLocation(programaID, "uMatrizProyeccion");
+      uUsarColorUniforme = gl.getUniformLocation(programaID, "uUsarColorUniforme");
+      uMatrizVista = gl.getUniformLocation(programaID, "uMatrizVista");
+      uMatrizModelo = gl.getUniformLocation(programaID, "uMatrizModelo");
+
+
+
+      lookAt(MatrizVista, posicion[0], posicion[1], posicion[2], posicion[0], posicion[1], posicion[2] - 1, 0, 1, 0);
+      identidad(MatrizVista);
+      gl.uniformMatrix4fv(uMatrizVista, false, MatrizVista);
+      identidad(MatrizRotacion);
+
+      /* Ajusta el ancho a [-1..1] y el alto a [-1..1] */
+      arcBall.ajusta(gl.canvas.width, gl.canvas.height);
+
+      gl.enable(gl.DEPTH_TEST);
+      gl.clearColor(176 / 255, 196 / 255, 222 / 255, 1.0);
+      dibuja();
+    }
+    window.onload = main;
+  </script>
+</body>
+
+</html>

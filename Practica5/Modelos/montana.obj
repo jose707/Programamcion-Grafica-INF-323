@@ -1,0 +1,75 @@
+# Montaña con nieve - Low Poly Modificada
+# Vertices: 146
+mtllib Montana.mtl
+
+# Vertices (base rocosa)
+v -5.000000 -1.000000 -5.000000  # 1
+v 5.000000 -1.000000 -5.000000   # 2
+v 5.000000 -1.000000 5.000000    # 3
+v -5.000000 -1.000000 5.000000   # 4
+v 0.000000 3.000000 0.000000     # 5 (punto central reducido de 4.0 a 3.0)
+
+# Vertices intermedios (ajustados para pendiente más suave)
+v -3.500000 0.800000 -3.500000   # 6
+v 3.500000 0.800000 -3.500000    # 7
+v 3.500000 0.800000 3.500000     # 8
+v -3.500000 0.800000 3.500000    # 9
+
+# Vertices (nieve en cumbre - ahora comienza más abajo)
+v 0.000000 2.500000 -1.500000    # 10 (antes 3.500)
+v 1.500000 2.500000 0.000000     # 11
+v 0.000000 2.500000 1.500000     # 12
+v -1.500000 2.500000 0.000000    # 13
+v 0.000000 3.200000 0.000000     # 14 (cima de nieve reducida de 5.0 a 3.2)
+
+# Normales (igual que antes)
+vn 0.000000 -1.000000 0.000000
+vn 0.447214 0.894427 0.000000
+vn 0.000000 0.196116 0.980581
+vn -0.447214 0.894427 0.000000
+vn 0.000000 0.196116 -0.980581
+vn 0.000000 1.000000 0.000000
+
+# UVs (igual que antes)
+vt 0.000000 0.000000
+vt 1.000000 0.000000
+vt 1.000000 1.000000
+vt 0.000000 1.000000
+
+# Grupo para la base rocosa
+g Base_Roca
+usemtl Roca
+
+# Base de la montaña (caras laterales)
+f 1/1/1 2/2/1 6/3/1
+f 2/2/1 3/3/1 7/4/1
+f 3/3/1 4/4/1 8/1/1
+f 4/4/1 1/1/1 9/2/1
+
+# Caras superiores de la montaña
+f 6/3/2 7/4/2 5/1/2
+f 7/4/3 8/1/3 5/1/3
+f 8/1/3 9/2/3 5/1/3
+f 9/2/4 6/3/4 5/1/4
+
+# Caras para cerrar la base
+f 2/2/1 7/4/1 6/3/1
+f 3/3/1 8/1/1 7/4/1
+f 4/4/1 9/2/1 8/1/1
+f 1/1/1 6/3/1 9/2/1
+
+# Grupo para la nieve
+g Cima_Nieve
+usemtl Nieve
+
+# Capa de nieve (cima más baja y ancha)
+f 10/3/5 11/4/5 14/1/6
+f 11/4/5 12/1/5 14/1/6
+f 12/1/5 13/2/5 14/1/6
+f 13/2/5 10/3/5 14/1/6
+
+# Caras adicionales para conectar nieve con montaña
+f 6/3/1 10/3/5 5/1/2
+f 7/4/1 11/4/5 5/1/2
+f 8/1/1 12/1/5 5/1/3
+f 9/2/1 13/2/5 5/1/4
