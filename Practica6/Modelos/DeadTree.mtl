@@ -1,0 +1,12 @@
+# Blender MTL File: 'Tree.blend'
+# Material Count: 1
+
+newmtl Material
+Ns 96.078431      # Reducido para menos brillo (más natural)
+Ka 0.3 0.25 0.2   # Ambient oscuro (evita el blanco puro)
+Kd 0.6 0.5 0.4    # Diffuse marrón medio (color base corteza)
+Ks 0.05 0.04 0.03 # Specular muy bajo (sin reflejos metálicos)
+Ke 0.0 0.0 0.0    # Sin emisión
+Ni 1.0
+d 1.0
+illum 1           # Iluminación básica (sin highlights fuertes)
